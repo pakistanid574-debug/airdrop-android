@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AirDrop Android - Secure P2P Transfer</title>
+    <title>AirDrop Android - Fast P2P Transfer</title>
     <!-- PeerJS WebRTC Library -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <!-- Tailwind CSS -->
@@ -11,7 +11,7 @@
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 font-sans relative">
 
-    <!-- Incoming Transfer Request Modal (Hidden by default) -->
+    <!-- Incoming Transfer Request Modal -->
     <div id="request-modal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl animate-pulse">
             <div class="text-3xl mb-2">📥</div>
@@ -32,12 +32,12 @@
         </div>
 
         <h1 class="text-2xl font-bold mb-1 text-white">AirDrop Android</h1>
-        <p class="text-xs text-slate-400 mb-6">Secure Request-Based P2P Sharing</p>
+        <p class="text-xs text-slate-400 mb-6">Instant Request-Based P2P Sharing</p>
 
         <!-- Your Device ID -->
         <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 mb-4 font-mono text-xs flex justify-between items-center">
             <span class="text-slate-500">My ID:</span> 
-            <span id="my-id" class="text-emerald-400 font-bold select-all truncate max-w-[180px]">Generating...</span>
+            <span id="my-id" class="text-emerald-400 font-bold select-all truncate max-w-[180px]">Generating Fast...</span>
             <button onclick="copyId()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] transition-colors">Copy</button>
         </div>
 
@@ -54,11 +54,11 @@
 
         <!-- Transfer Status Log -->
         <div id="status" class="mt-6 text-xs text-slate-400 min-h-[30px] bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/50 flex items-center justify-center">
-            Ready for secure transfer.
+            Ready for instant transfer.
         </div>
     </div>
 
-    <!-- JavaScript Logic with Request/Approval System -->
+    <!-- Ultra-Fast JavaScript Logic -->
     <script>
         let peer = null;
         let conn = null;
@@ -67,22 +67,29 @@
         let incomingMetadata = null;
 
         function initPeer() {
-            peer = new Peer();
+            // Instant Custom ID generation on client-side to eliminate server lag
+            const fastId = 'drop-' + Math.random().toString(36).substring(2, 8);
+            peer = new Peer(fastId);
 
             peer.on('open', (id) => {
                 myPeerId = id;
                 document.getElementById('my-id').innerText = id;
-            });
-
-            // Listen for incoming connections from senders
-            peer.on('connection', (connection) => {
-                conn = connection;
-                setupConnectionHandlers();
+                updateStatus('🟢 Ready for connection', 'text-emerald-400');
             });
 
             peer.on('error', (err) => {
-                console.error(err);
-                updateStatus('⚠️ Connection error. Refreshing ID...', 'text-rose-400');
+                if (err.type === 'unavailable-id') {
+                    // Auto-retry instantly if ID matches another user
+                    initPeer();
+                } else {
+                    console.error(err);
+                    updateStatus('⚠️ Reconnecting...', 'text-rose-400');
+                }
+            });
+
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnectionHandlers();
             });
         }
 
@@ -103,7 +110,6 @@
                 return;
             }
 
-            // Connect to receiver if not connected
             if (!conn || conn.peer !== receiverId) {
                 updateStatus('Connecting to receiver...', 'text-amber-400');
                 conn = peer.connect(receiverId);
@@ -127,8 +133,6 @@
             if (!pendingFile || !conn) return;
 
             updateStatus('📤 Sending file request...', 'text-amber-400');
-
-            // Step 1: Send metadata request first (do not send heavy file yet)
             conn.send({
                 type: 'request-file',
                 name: pendingFile.name,
@@ -139,7 +143,6 @@
         function setupConnectionHandlers() {
             conn.on('data', (data) => {
                 if (data.type === 'request-file') {
-                    // Receiver side: Store metadata and show popup request
                     incomingMetadata = data;
                     document.getElementById('incoming-file-info').innerText = 
                         `File: ${data.name} (${formatBytes(data.size)})`;
@@ -147,7 +150,6 @@
                     updateStatus('📥 Incoming transfer request...', 'text-amber-400');
 
                 } else if (data.type === 'response-accept') {
-                    // Sender side: Receiver accepted, now stream the actual file
                     updateStatus('🚀 Request accepted! Sending file...', 'text-indigo-400');
                     conn.send({
                         type: 'file-transfer',
@@ -158,12 +160,10 @@
                     document.getElementById('file-input').value = '';
 
                 } else if (data.type === 'response-reject') {
-                    // Sender side: Receiver rejected
                     updateStatus('❌ Receiver rejected the file request.', 'text-rose-400');
                     document.getElementById('file-input').value = '';
 
                 } else if (data.type === 'file-transfer') {
-                    // Receiver side: Actual file received after approval
                     updateStatus(`📥 Receiving: ${data.name}...`, 'text-indigo-400');
                     
                     const blob = new Blob([data.file]);
@@ -180,14 +180,12 @@
         function acceptFile() {
             document.getElementById('request-modal').classList.add('hidden');
             updateStatus('🟢 Request accepted. Waiting for file...', 'text-emerald-400');
-            // Send accept signal back to sender
             conn.send({ type: 'response-accept' });
         }
 
         function rejectFile() {
             document.getElementById('request-modal').classList.add('hidden');
             updateStatus('❌ You rejected the file request.', 'text-rose-400');
-            // Send reject signal back to sender
             conn.send({ type: 'response-reject' });
         }
 
@@ -198,7 +196,7 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
         }
 
-        // Initialize peer on page load
+        // Initialize instantly on load
         initPeer();
     </script>
 </body>
