@@ -3,15 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AirDrop Android - Cross-Platform P2P File Transfer</title>
+    <title>AirDrop Android - Secure P2P Transfer</title>
     <!-- PeerJS WebRTC Library -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 font-sans">
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 font-sans relative">
 
-    <!-- Card Container -->
+    <!-- Incoming Transfer Request Modal (Hidden by default) -->
+    <div id="request-modal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl animate-pulse">
+            <div class="text-3xl mb-2">📥</div>
+            <h2 class="text-lg font-bold text-white mb-1">Incoming File Request</h2>
+            <p id="incoming-file-info" class="text-xs text-slate-400 mb-6">Someone wants to send you a file.</p>
+            <div class="flex gap-3">
+                <button onclick="rejectFile()" class="flex-1 bg-rose-600/20 border border-rose-500/30 hover:bg-rose-600 text-rose-300 hover:text-white py-2.5 rounded-xl text-xs font-medium transition-all">Reject</button>
+                <button onclick="acceptFile()" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-xl text-xs font-medium transition-all shadow-lg shadow-emerald-600/20">Accept</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Card Container -->
     <div class="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl text-center">
         
         <div class="w-16 h-16 bg-indigo-600/20 text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-indigo-500/30 text-2xl">
@@ -19,81 +32,174 @@
         </div>
 
         <h1 class="text-2xl font-bold mb-1 text-white">AirDrop Android</h1>
-        <p class="text-xs text-slate-400 mb-6">Local P2P File Sharing for Android, PC & iOS</p>
+        <p class="text-xs text-slate-400 mb-6">Secure Request-Based P2P Sharing</p>
 
         <!-- Your Device ID -->
-        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 mb-5 font-mono text-xs flex justify-between items-center">
-            <span class="text-slate-500">Your Device ID:</span> 
-            <span id="my-id" class="text-emerald-400 font-bold select-all">Connecting...</span>
+        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 mb-4 font-mono text-xs flex justify-between items-center">
+            <span class="text-slate-500">My ID:</span> 
+            <span id="my-id" class="text-emerald-400 font-bold select-all truncate max-w-[180px]">Generating...</span>
+            <button onclick="copyId()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded text-[10px] transition-colors">Copy</button>
         </div>
 
         <!-- Receiver Input & Actions -->
         <div class="space-y-3">
             <input type="text" id="receiver-id" placeholder="Enter Receiver Device ID" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono">
             
-            <input type="file" id="file-input" class="hidden" onchange="sendFile()">
+            <input type="file" id="file-input" class="hidden" onchange="prepareAndSendRequest()">
             
-            <button onclick="document.getElementById('file-input').click()" class="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-medium py-3 rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20">
+            <button onclick="triggerFileSelect()" id="send-btn" class="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-medium py-3 rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20">
                 📂 Select & Send File
             </button>
         </div>
 
         <!-- Transfer Status Log -->
-        <div id="status" class="mt-6 text-xs text-slate-400 min-h-[20px] bg-slate-950/50 p-2 rounded-lg border border-slate-800/50">
-            Ready for local peer transfer.
+        <div id="status" class="mt-6 text-xs text-slate-400 min-h-[30px] bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/50 flex items-center justify-center">
+            Ready for secure transfer.
         </div>
     </div>
 
-    <!-- WebRTC JavaScript Logic -->
+    <!-- JavaScript Logic with Request/Approval System -->
     <script>
-        const peer = new Peer();
+        let peer = null;
         let conn = null;
+        let myPeerId = '';
+        let pendingFile = null;
+        let incomingMetadata = null;
 
-        peer.on('open', (id) => {
-            document.getElementById('my-id').innerText = id;
-        });
+        function initPeer() {
+            peer = new Peer();
 
-        // Incoming Connection Event
-        peer.on('connection', (connection) => {
-            conn = connection;
-            document.getElementById('status').innerText = '🟢 Connected to remote peer!';
-            
-            conn.on('data', (data) => {
-                document.getElementById('status').innerText = `📥 Receiving: ${data.name}...`;
-                
-                const blob = new Blob([data.file]);
-                const link = document.createElement('a');
-                link.href = URL.createObjectURL(blob);
-                link.download = data.name;
-                link.click();
-                
-                document.getElementById('status').innerText = '✅ File Received Successfully!';
+            peer.on('open', (id) => {
+                myPeerId = id;
+                document.getElementById('my-id').innerText = id;
             });
-        });
 
-        // Send File Function
-        function sendFile() {
+            // Listen for incoming connections from senders
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnectionHandlers();
+            });
+
+            peer.on('error', (err) => {
+                console.error(err);
+                updateStatus('⚠️ Connection error. Refreshing ID...', 'text-rose-400');
+            });
+        }
+
+        function copyId() {
+            if (!myPeerId) return;
+            navigator.clipboard.writeText(myPeerId);
+            alert('Device ID Copied to Clipboard!');
+        }
+
+        function triggerFileSelect() {
             const receiverId = document.getElementById('receiver-id').value.trim();
-            const fileInput = document.getElementById('file-input');
-            const file = fileInput.files[0];
-
-            if (!receiverId || !file) {
-                alert('Please enter Receiver Device ID and select a file!');
+            if (!receiverId) {
+                alert('Please enter Receiver Device ID first!');
+                return;
+            }
+            if (receiverId === myPeerId) {
+                alert('You cannot send a file to yourself!');
                 return;
             }
 
-            document.getElementById('status').innerText = '🚀 Connecting & Transferring...';
-            conn = peer.connect(receiverId);
-
-            conn.on('open', () => {
-                conn.send({
-                    file: file,
-                    name: file.name,
-                    size: file.size
+            // Connect to receiver if not connected
+            if (!conn || conn.peer !== receiverId) {
+                updateStatus('Connecting to receiver...', 'text-amber-400');
+                conn = peer.connect(receiverId);
+                
+                conn.on('open', () => {
+                    updateStatus('🟢 Connected! Select a file.', 'text-emerald-400');
+                    document.getElementById('file-input').click();
                 });
-                document.getElementById('status').innerText = '✅ File Sent Successfully!';
+
+                conn.on('error', () => {
+                    updateStatus('❌ Failed to connect to receiver ID.', 'text-rose-400');
+                });
+            } else {
+                document.getElementById('file-input').click();
+            }
+        }
+
+        function prepareAndSendRequest() {
+            const fileInput = document.getElementById('file-input');
+            pendingFile = fileInput.files[0];
+            if (!pendingFile || !conn) return;
+
+            updateStatus('📤 Sending file request...', 'text-amber-400');
+
+            // Step 1: Send metadata request first (do not send heavy file yet)
+            conn.send({
+                type: 'request-file',
+                name: pendingFile.name,
+                size: pendingFile.size
             });
         }
+
+        function setupConnectionHandlers() {
+            conn.on('data', (data) => {
+                if (data.type === 'request-file') {
+                    // Receiver side: Store metadata and show popup request
+                    incomingMetadata = data;
+                    document.getElementById('incoming-file-info').innerText = 
+                        `File: ${data.name} (${formatBytes(data.size)})`;
+                    document.getElementById('request-modal').classList.remove('hidden');
+                    updateStatus('📥 Incoming transfer request...', 'text-amber-400');
+
+                } else if (data.type === 'response-accept') {
+                    // Sender side: Receiver accepted, now stream the actual file
+                    updateStatus('🚀 Request accepted! Sending file...', 'text-indigo-400');
+                    conn.send({
+                        type: 'file-transfer',
+                        file: pendingFile,
+                        name: pendingFile.name
+                    });
+                    updateStatus('✅ File Sent Successfully!', 'text-emerald-400');
+                    document.getElementById('file-input').value = '';
+
+                } else if (data.type === 'response-reject') {
+                    // Sender side: Receiver rejected
+                    updateStatus('❌ Receiver rejected the file request.', 'text-rose-400');
+                    document.getElementById('file-input').value = '';
+
+                } else if (data.type === 'file-transfer') {
+                    // Receiver side: Actual file received after approval
+                    updateStatus(`📥 Receiving: ${data.name}...`, 'text-indigo-400');
+                    
+                    const blob = new Blob([data.file]);
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = data.name;
+                    link.click();
+                    
+                    updateStatus('✅ File Received Successfully!', 'text-emerald-400');
+                }
+            });
+        }
+
+        function acceptFile() {
+            document.getElementById('request-modal').classList.add('hidden');
+            updateStatus('🟢 Request accepted. Waiting for file...', 'text-emerald-400');
+            // Send accept signal back to sender
+            conn.send({ type: 'response-accept' });
+        }
+
+        function rejectFile() {
+            document.getElementById('request-modal').classList.add('hidden');
+            updateStatus('❌ You rejected the file request.', 'text-rose-400');
+            // Send reject signal back to sender
+            conn.send({ type: 'response-reject' });
+        }
+
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024, dm = decimals < 0 ? 0 : decimals, sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        // Initialize peer on page load
+        initPeer();
     </script>
 </body>
 </html>
