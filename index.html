@@ -13,7 +13,7 @@
 
     <!-- Incoming Transfer Request Modal -->
     <div id="request-modal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl animate-pulse">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
             <div class="text-3xl mb-2">📥</div>
             <h2 class="text-lg font-bold text-white mb-1">Incoming File Request</h2>
             <p id="incoming-file-info" class="text-xs text-slate-400 mb-6">Someone wants to send you a file.</p>
@@ -58,16 +58,14 @@
         </div>
     </div>
 
-    <!-- Ultra-Fast JavaScript Logic -->
+    <!-- Fixed JavaScript Logic -->
     <script>
         let peer = null;
         let conn = null;
         let myPeerId = '';
         let pendingFile = null;
-        let incomingMetadata = null;
 
         function initPeer() {
-            // Instant Custom ID generation on client-side to eliminate server lag
             const fastId = 'drop-' + Math.random().toString(36).substring(2, 8);
             peer = new Peer(fastId);
 
@@ -79,7 +77,6 @@
 
             peer.on('error', (err) => {
                 if (err.type === 'unavailable-id') {
-                    // Auto-retry instantly if ID matches another user
                     initPeer();
                 } else {
                     console.error(err);
@@ -114,6 +111,8 @@
                 updateStatus('Connecting to receiver...', 'text-amber-400');
                 conn = peer.connect(receiverId);
                 
+                setupConnectionHandlers();
+                
                 conn.on('open', () => {
                     updateStatus('🟢 Connected! Select a file.', 'text-emerald-400');
                     document.getElementById('file-input').click();
@@ -136,26 +135,34 @@
             conn.send({
                 type: 'request-file',
                 name: pendingFile.name,
-                size: pendingFile.size
+                size: pendingFile.size,
+                fileType: pendingFile.type
             });
         }
 
         function setupConnectionHandlers() {
-            conn.on('data', (data) => {
+            if (!conn) return;
+
+            conn.on('data', async (data) => {
                 if (data.type === 'request-file') {
-                    incomingMetadata = data;
                     document.getElementById('incoming-file-info').innerText = 
                         `File: ${data.name} (${formatBytes(data.size)})`;
                     document.getElementById('request-modal').classList.remove('hidden');
                     updateStatus('📥 Incoming transfer request...', 'text-amber-400');
 
                 } else if (data.type === 'response-accept') {
-                    updateStatus('🚀 Request accepted! Sending file...', 'text-indigo-400');
+                    updateStatus('🚀 Request accepted! Converting & sending...', 'text-indigo-400');
+                    
+                    // Convert file to ArrayBuffer to ensure 100% reliable transfer over WebRTC
+                    const arrayBuffer = await pendingFile.arrayBuffer();
+                    
                     conn.send({
                         type: 'file-transfer',
-                        file: pendingFile,
-                        name: pendingFile.name
+                        fileBuffer: arrayBuffer,
+                        name: pendingFile.name,
+                        fileType: pendingFile.type
                     });
+                    
                     updateStatus('✅ File Sent Successfully!', 'text-emerald-400');
                     document.getElementById('file-input').value = '';
 
@@ -164,9 +171,10 @@
                     document.getElementById('file-input').value = '';
 
                 } else if (data.type === 'file-transfer') {
-                    updateStatus(`📥 Receiving: ${data.name}...`, 'text-indigo-400');
+                    updateStatus(`📥 Receiving ${data.name}...`, 'text-indigo-400');
                     
-                    const blob = new Blob([data.file]);
+                    // Rebuild file from ArrayBuffer
+                    const blob = new Blob([data.fileBuffer], { type: data.fileType });
                     const link = document.createElement('a');
                     link.href = URL.createObjectURL(blob);
                     link.download = data.name;
@@ -196,7 +204,6 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
         }
 
-        // Initialize instantly on load
         initPeer();
     </script>
 </body>
